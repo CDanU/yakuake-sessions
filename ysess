@@ -7,14 +7,8 @@ import os
 import re
 import subprocess
 import sys
-import time
 from argparse import ArgumentParser
 from enum import Enum
-
-
-DBUS = 'qdbus org.kde.yakuake '
-
-bus = dbus.SessionBus()
 
 
 class Yakuake():
@@ -344,43 +338,6 @@ class Yakuake():
         self.__window_interface.toggleWindowState()
 
 
-class SortedDict(dict):
-    def __init__(self, *args, **kwargs):
-        dict.__init__(self, *args, **kwargs)
-        self.keyOrder = list(dict.keys(self))
-
-    def keys(self):
-        return self.keyOrder
-
-    def iterkeys(self):
-        for key in self.keyOrder:
-            yield key
-
-    __iter__ = iterkeys
-
-    def items(self):
-        return [(key, self[key]) for key in self.keyOrder]
-
-    def iteritems(self):
-        for key in self.keyOrder:
-            yield (key, self[key])
-
-    def values(self):
-        return [self[key] for key in self.keyOrder]
-
-    def itervalues(self):
-        for key in self.keyOrder:
-            yield self[key]
-
-    def __setitem__(self, key, val):
-        self.keyOrder.append(key)
-        dict.__setitem__(self, key, val)
-
-    def __delitem__(self, key):
-        self.keyOrder.remove(key)
-        dict.__delitem__(self, key)
-
-
 def get_stdout(cmd, **opts):
     opts.update({'stdout': subprocess.PIPE})
     if 'env' in opts:
@@ -398,10 +355,6 @@ def get_stdout(cmd, **opts):
 
     proc = subprocess.Popen(cmd_split, **opts)
     return proc.communicate()[0].decode('utf-8').strip()
-
-
-def get_yakuake(cmd):
-    return get_stdout(DBUS + cmd)
 
 
 def write_data(data, file_obj):
@@ -481,67 +434,74 @@ def get_data():
     return data
 
 
-def load_sessions(file):
-    cp = ConfigParser(dict_type=SortedDict)
-    cp.read_file(file)
-
-    sections = cp.sections()
-    if not sections:
-        print("No tab info found, aborting", file=sys.stderr)
+def apply_data(data):
+    if len(data['sessions']) == 0:
+        print("No session data found, aborting", file=sys.stderr)
         sys.exit(1)
 
-    # Clear existing sessions
-    subprocess.call(['killall', 'yakuake'])
-    subprocess.call(['yakuake'])
-    time.sleep(2)
+    yak = Yakuake()
 
-    # Repopulate the tabs
-    tab = 0
-    active = 0
-    for i, section in enumerate(sections):
-        opts = dict(cp.items(section))
-        if not opts['split']:
-            tab += 1
-            get_yakuake('/yakuake/sessions addSession')
-            get_yakuake(
-                '/yakuake/tabs setTabTitle {} "{}"'.format(tab, opts['title'])
-            )
-        else:
-            target, split = (tab, opts['split']) if ':' not in opts['split'] \
-                else opts['split'].split(':')
+    initial_sessions = yak.session_id_list()
+    initial_active_session_id = yak.active_session_id()
+    new_active_session_id = None
 
-            get_yakuake('/yakuake/sessions splitTerminal{} {}'.format(
-                {'vertical': 'LeftRight', 'horizontal': 'TopBottom'}[split],
-                int(target)
-            ))
+    for session in data['sessions']:
+        session_id = yak.add_session()
+        yak.set_tab_title(session_id, session["tab_title"])
 
-        sessid = int(get_yakuake('/yakuake/tabs sessionAtTab {}'.format(i)))
-        if opts['cwd']:
-            get_yakuake(
-                '/yakuake/sessions runCommand " cd {}"'.format(opts['cwd'])
-            )
+        yak.set_session(
+            session_id,
+            closable=session["is_closable"],
+            keyboard_input_enabled=session["keyboard_input_enabled"],
+            monitor_activity_enabled=session["monitor_activity_enabled"],
+            monitor_silence_enabled=session["monitor_silence_enabled"]
+        )
 
-        if opts['cmd']:
-            for cmd in opts['cmd'].split(r'\n'):
-                dbus_session = bus.get_object(
-                    'org.kde.yakuake',
-                    '/Sessions/{}'.format(i + 1)
+        if session["active"]:
+            new_active_session_id = session_id
+
+        terminal_ids = [None, None]
+        terminal_splits = [yak.SplitType.Left_Right, yak.SplitType.Top_Bottom]
+        for idx, terminal in enumerate(session['terminals']):
+            terminal_id = None
+            split_idx = (idx+1) % 2
+            if idx == 0:
+                # an open session has always one terminal open
+                terminal_id = yak.terminal_ids_for_session_id(session_id)[0]
+                terminal_ids[0] = terminal_id
+            else:
+                split_dir = terminal_splits[split_idx]
+                terminal_id = yak.split_terminal(
+                    terminal_ids[split_idx],
+                    split_dir
                 )
-                dbus_session = dbus.Interface(
-                    dbus_session,
-                    'org.kde.konsole.Session'
-                )
-                dbus_session.sendText(cmd)
-                dbus_session.sendText('\n')
+                if terminal_ids[1] is None:
+                    terminal_ids[1] = terminal_id
+                terminal_splits[split_idx] = yak.SplitType.Left_Right \
+                    if split_dir == yak.SplitType.Top_Bottom \
+                    else yak.SplitType.Top_Bottom
 
-        if opts['active'].lower() in ['y', 'yes', 'true', '1']:
-            active = sessid
+            yak.set_terminal(
+                terminal_id,
+                keyboard_input_enabled=terminal["keyboard_input_enabled"],
+                monitor_activity_enabled=terminal["monitor_activity_enabled"],
+                monitor_silence_enabled=terminal["monitor_silence_enabled"]
+            )
 
-    if active:
-        get_yakuake('/yakuake/sessions raiseSession {}'.format(active))
-
-    # Remove initial session
-    get_yakuake('/yakuake/sessions removeSession 0')
+            yak.run_command_in_terminal(
+                terminal_id,
+                " cd {}".format(terminal["cwd"])
+            )
+            yak.run_command_in_terminal(
+                terminal_id,
+                terminal["cmd"]
+            )
+            yak.terminal_send_text(
+                terminal_id,
+                terminal["text"]
+            )
+    yak.remove_session(initial_active_session_id)
+    yak.raise_session(new_active_session_id)
 
 
 def main():
@@ -584,10 +544,10 @@ def main():
 
     if args.infile is not None:
         if args.infile == '-':
-            load_sessions(sys.stdin)
+            apply_data(load_data(sys.stdin))
         elif os.path.exists(args.infile):
             file_path = open(args.infile, 'r')
-            load_sessions(file_path)
+            apply_data(load_data(file_path))
         else:
             print("ERROR - Input file does not exist: '{}'".format(args.infile),
                   file=sys.stderr)
