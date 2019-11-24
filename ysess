@@ -2,7 +2,6 @@
 # coding=utf-8
 
 import dbus
-import math
 import os
 import re
 import subprocess
@@ -126,11 +125,11 @@ def get_sessions():
 
 def format_sessions(tabs, fp):
     cp = ConfigParser(dict_type=SortedDict)
-    tabpad = int(math.log10(len(tabs))) + 1
+    padding_length = len(str(len(tabs)))
 
     for i, tab in enumerate(tabs):
         section = 'Tab {num:{fill}{width}}'.format(
-            num=i + 1, fill='0', width=tabpad
+            num=i + 1, fill='0', width=padding_length
         )
 
         cp.add_section(section)
