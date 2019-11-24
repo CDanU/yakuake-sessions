@@ -9,8 +9,8 @@ import subprocess
 import subprocess as sp
 import sys
 import time
+from argparse import ArgumentParser
 from configparser import ConfigParser
-from optparse import OptionParser
 
 
 DBUS = 'qdbus org.kde.yakuake '
@@ -239,45 +239,73 @@ def load_sessions(file):
     get_yakuake('/yakuake/sessions removeSession 0')
 
 
-if __name__ == '__main__':
+def main():
     # TODO: also store shell environment (for virtualenvs and such)
-    # ps e 20017 | awk '{for (i=1; i<6; i++) $i = ""; print}'
-
-    op = OptionParser(
+    arg_parser = ArgumentParser(
         description="Save and load yakuake sessions. Settings are exported "
                     "in INI format. Default action is to print the current "
                     "setup to stdout in INI format."
     )
 
-    op.add_option('-i', '--in-file', dest='infile', metavar='FILE',
-                  help='File to read from, or "-" for stdin')
-    op.add_option('-o', '--out-file', dest='outfile', metavar='FILE',
-                  help='File to write to, or "-" for stdout')
-    op.add_option('--force-overwrite', dest='force_overwrite',
-                  help='Do not prompt for confirmation if out-file exists',
-                  action="store_true", default=False)
-    opts, args = op.parse_args()
+    group_exclusive = arg_parser.add_mutually_exclusive_group(required=True)
 
-    if opts.outfile is None and opts.infile is None:
+    group_exclusive.add_argument(
+        '-i', '--in-file',
+        help='File to read from, or "-" for stdin',
+        dest='infile',
+        metavar='FILE'
+    )
+
+    group_exclusive.add_argument(
+        '-o', '--out-file',
+        help='File to write to, or "-" for stdout',
+        dest='outfile',
+        metavar='FILE'
+    )
+
+    arg_parser.add_argument(
+        '--force-overwrite',
+        help='Do not prompt for confirmation if out-file exists',
+        dest='force_overwrite',
+        action="store_true",
+        default=False
+    )
+
+    args = arg_parser.parse_args()
+
+    if args.outfile is None and args.infile is None:
         format_sessions(get_sessions(), sys.stdout)
-    elif opts.outfile:
-        fp = sys.stdout
-        if (opts.outfile and opts.outfile != '-' and (
-            not os.path.exists(opts.outfile)
-            or opts.force_overwrite
-            or input(
-                 'Specified file exists, overwrite? [y/N] '
-               ).lower().startswith('y')
-        )):
-            fp = open(opts.outfile, 'w')
-        format_sessions(get_sessions(), fp)
-    elif opts.infile:
-        fp = sys.stdin
-        if opts.infile and opts.infile != '-':
-            if not os.path.exists(opts.infile):
-                print("ERROR: Input file (%s) does not exist." % opts.infile,
-                      file=sys.stderr)
-                sys.exit(1)
-            fp = open(opts.infile, 'r')
+        return 0
 
-        load_sessions(fp)
+    if args.infile is not None:
+        if args.infile == '-':
+            load_sessions(sys.stdin)
+        elif os.path.exists(args.infile):
+            file_path = open(args.infile, 'r')
+            load_sessions(file_path)
+        else:
+            print("ERROR - Input file does not exist: '{}'".format(args.infile),
+                  file=sys.stderr)
+            return 1
+
+        return 0
+
+    if args.outfile is not None:
+        if args.outfile == '-':
+            format_sessions(get_sessions(), sys.stdout)
+        elif not os.path.exists(args.outfile) or args.force_overwrite:
+            file_path = open(args.outfile, 'w')
+            format_sessions(get_sessions(), file_path)
+        else:
+            print("ERROR - File does already exist: '{}'".format(args.outfile),
+                  file=sys.stderr)
+            return 1
+
+        return 0
+
+    print("ERROR - Malformed arguments were passed.", file=sys.stderr)
+    return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())
