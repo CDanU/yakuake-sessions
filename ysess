@@ -2,13 +2,13 @@
 # coding=utf-8
 
 import dbus
+import json
 import os
 import re
 import subprocess
 import sys
 import time
 from argparse import ArgumentParser
-from configparser import ConfigParser
 from enum import Enum
 
 
@@ -404,6 +404,14 @@ def get_yakuake(cmd):
     return get_stdout(DBUS + cmd)
 
 
+def write_data(data, file_obj):
+    print(json.dumps(data, indent=4, sort_keys=True), file=file_obj)
+
+
+def load_data(file_obj):
+    return json.load(file_obj)
+
+
 def get_data():
     yak = Yakuake()
 
@@ -471,26 +479,6 @@ def get_data():
             session_data['terminals'].append(terminal_data)
         data['sessions'].append(session_data)
     return data
-
-
-def format_sessions(tabs, file_path):
-    cp = ConfigParser(dict_type=SortedDict)
-    padding_length = len(str(len(tabs)))
-
-    for i, tab in enumerate(tabs):
-        section = 'Tab {num:{fill}{width}}'.format(
-            num=i + 1, fill='0', width=padding_length
-        )
-
-        cp.add_section(section)
-        cp.set(section, 'title', tab['title'])
-        cp.set(section, 'active', '1' if tab['active'] else '0')
-        cp.set(section, 'tab', str(tab['tabid']))
-        cp.set(section, 'split', tab['split'])
-        cp.set(section, 'cwd', tab['cwd'])
-        cp.set(section, 'cmd', tab['cmd'])
-
-    cp.write(file_path)
 
 
 def load_sessions(file):
@@ -591,8 +579,8 @@ def main():
     args = arg_parser.parse_args()
 
     if args.outfile is None and args.infile is None:
-        format_sessions(get_sessions(), sys.stdout)
-        return 0
+        data = get_data()
+        write_data(data, sys.stdout)
 
     if args.infile is not None:
         if args.infile == '-':
@@ -609,10 +597,10 @@ def main():
 
     if args.outfile is not None:
         if args.outfile == '-':
-            format_sessions(get_sessions(), sys.stdout)
+            write_data(get_data(), sys.stdout)
         elif not os.path.exists(args.outfile) or args.force_overwrite:
             file_path = open(args.outfile, 'w')
-            format_sessions(get_sessions(), file_path)
+            write_data(get_data(), file_path)
         else:
             print("ERROR - File does already exist: '{}'".format(args.outfile),
                   file=sys.stderr)
