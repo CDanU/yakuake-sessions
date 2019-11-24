@@ -5,7 +5,6 @@ import dbus
 import os
 import re
 import subprocess
-import subprocess as sp
 import sys
 import time
 from argparse import ArgumentParser
@@ -55,7 +54,7 @@ class SortedDict(dict):
 
 
 def get_stdout(cmd, **opts):
-    opts.update({'stdout': sp.PIPE})
+    opts.update({'stdout': subprocess.PIPE})
     if 'env' in opts:
         env, opts['env'] = opts['env'], os.environ.copy()
         opts['env'].update(env)
