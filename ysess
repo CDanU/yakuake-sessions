@@ -404,54 +404,73 @@ def get_yakuake(cmd):
     return get_stdout(DBUS + cmd)
 
 
-def get_sessions():
-    tabs = []
-    active_sessionid = int(get_yakuake('/yakuake/sessions activeSessionId'))
+def get_data():
+    yak = Yakuake()
 
-    ksessions = sorted(
-        int(line.split('/')[-1])
-        for line in get_yakuake('').split('\n') if '/Sessions/' in line
-    )
-    last_tabid = None
+    data = {
+        "sessions": []
+    }
 
-    for ksession in ksessions:
-        # Está dando la sesión del id en el que se hizo el split, no tiene nada que ver con el tab, pero ayuda.
-        # Por ejemplo, sesión 4->split->sesión 5->split->sesión 6, dará sesión 5 para la sesión 6.
-        # Al usar "sessionAtTab", me devuelve la primera sesión abierta en el tab, lo cual me ayuda a seguir
-        # el orden.
-        tabid = int(get_yakuake(
-            '/yakuake/sessions sessionIdForTerminalId {}'.format(ksession - 1)
-        ))
+    active_session_id = yak.active_session_id()
 
-        sessid = int(get_yakuake('/yakuake/tabs sessionAtTab {}'.format(tabid)))
-        tab_title = get_yakuake('/yakuake/tabs tabTitle {}'.format(tabid)),
+    for session_id in sorted(yak.session_id_list()):
+        session_data = {
+            "tab_title": yak.tab_title(session_id),
+            "is_closable": yak.is_session_closable(session_id),
+            "keyboard_input_enabled": yak.is_session_keyboard_input_enabled(
+                session_id
+            ),
+            "monitor_activity_enabled": yak.is_session_monitor_activity_enabled(
+                session_id
+            ),
+            "monitor_silence_enabled": yak.is_session_monitor_silence_enabled(
+                session_id
+            ),
+            "active": active_session_id == session_id,
+            "terminals": []
+        }
+        # active_terminal_id = yak.active_terminal_id()
 
-        split = '' if tabid != last_tabid \
-            else ('vertical' if ksession % 2 else 'horizontal')
-        last_tabid = tabid
+        terminal_ids = yak.terminal_ids_for_session_id(session_id)
+        for terminal_id in sorted(terminal_ids):
+            terminal_data = {
+                # TODO: find a way to raise tabs - not only sessions
+                # 'active': active_terminal_id == terminal_id,
+                "keyboard_input_enabled": yak.is_terminal_keyboard_input_enabled(
+                    terminal_id
+                ),
+                "monitor_activity_enabled": yak.is_terminal_monitor_activity_enabled(
+                    terminal_id
+                ),
+                "monitor_silence_enabled": yak.is_terminal_monitor_silence_enabled(
+                    terminal_id
+                ),
+                'cmd': "",
+                'cwd': "",
+                'text': ""
+            }
 
-        ksess = '/Sessions/{}'.format(ksession)
+            pid = yak.terminal_pid(terminal_id)
+            fg_pid = yak.terminal_forground_pid(terminal_id)
 
-        pid = get_yakuake(ksess + ' processId')
-        fgpid = get_yakuake(ksess + ' foregroundProcessId')
+            cmd = ''
+            if fg_pid != pid:
+                out = get_stdout(
+                    'ps ' + str(fg_pid),
+                    env={'PS_FORMAT': 'command'}
+                )
+                cmd = out.split('\n')[-1]
+            cwd = get_stdout('pwdx ' + str(pid)).partition(' ')[2]
 
-        cmd = ''
-        if fgpid != pid:
-            out = get_stdout('ps ' + fgpid, env={'PS_FORMAT': 'command'})
-            cmd = out.split('\n')[-1]
-        cwd = get_stdout('pwdx ' + pid).partition(' ')[2]
+            split = yak.SplitType.Left_Right.name if terminal_id % 2 \
+                else yak.SplitType.Top_Bottom.name
 
-        tabs.append({
-            'tabid': tabid,
-            'sessionid': tabid,
-            'title': tab_title,
-            'active': sessid == activesess,
-            'split': split,
-            'cmd': cmd,
-            'cwd': cwd,
-        })
+            terminal_data['cmd'] = cmd
+            terminal_data['cwd'] = cwd
 
-    return tabs
+            session_data['terminals'].append(terminal_data)
+        data['sessions'].append(session_data)
+    return data
 
 
 def format_sessions(tabs, file_path):
