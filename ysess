@@ -79,7 +79,7 @@ def get_yakuake(cmd):
 
 def get_sessions():
     tabs = []
-    activesess = int(get_yakuake('/yakuake/sessions activeSessionId'))
+    active_sessionid = int(get_yakuake('/yakuake/sessions activeSessionId'))
 
     ksessions = sorted(
         int(line.split('/')[-1])
@@ -110,7 +110,7 @@ def get_sessions():
             'title': get_yakuake('/yakuake/tabs tabTitle {}'.format(tabid)),
             'sessionid': tabid,
             'tabid': tabid,
-            'active': sessid == activesess,
+            'active': sessid == active_sessionid,
             'split': split,
             'cwd': get_stdout('pwdx ' + pid).partition(' ')[2],
             'cmd': '' if fgpid == pid else
@@ -123,7 +123,7 @@ def get_sessions():
     return tabs
 
 
-def format_sessions(tabs, fp):
+def format_sessions(tabs, file_path):
     cp = ConfigParser(dict_type=SortedDict)
     padding_length = len(str(len(tabs)))
 
@@ -139,8 +139,8 @@ def format_sessions(tabs, fp):
         cp.set(section, 'split', tab['split'])
         cp.set(section, 'cwd', tab['cwd'])
         cp.set(section, 'cmd', tab['cmd'])
-        
-    cp.write(fp)
+
+    cp.write(file_path)
 
 
 def load_sessions(file):
