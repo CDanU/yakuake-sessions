@@ -9,11 +9,339 @@ import sys
 import time
 from argparse import ArgumentParser
 from configparser import ConfigParser
+from enum import Enum
 
 
 DBUS = 'qdbus org.kde.yakuake '
 
 bus = dbus.SessionBus()
+
+
+class Yakuake():
+    __common_name = 'org.kde.yakuake'
+    __konsole_name = 'org.kde.konsole'
+
+    __konsole_session_interface_name = __konsole_name + ".Session"
+    __konsole_window_interface_name = __konsole_name + ".Window"
+
+    __introspection_interface_name = 'org.freedesktop.DBus.Introspectable'
+
+    def __init__(self, *args, **kwargs):
+        self.__bus = dbus.SessionBus()
+
+        self.__sessions_object = self.__bus.get_object(
+            self.__common_name, '/yakuake/sessions'
+        )
+        self.__sessions_interface = dbus.Interface(
+            self.__sessions_object,  self.__common_name
+        )
+
+        self.__tabs_object = self.__bus.get_object(
+            self.__common_name, '/yakuake/tabs'
+        )
+        self.__tabs_interface = dbus.Interface(
+            self.__tabs_object, self.__common_name
+        )
+
+        self.__window_object = self.__bus.get_object(
+            self.__common_name, '/yakuake/window'
+        )
+        self.__window_interface = dbus.Interface(
+            self.__window_object, self.__common_name
+        )
+
+    @staticmethod
+    def __split_number_string(string):
+        splits = string.split(",")
+        numbers = []
+        for split in splits:
+            numbers.append(int(split))
+        return numbers
+
+    @staticmethod
+    def __split_number_string_array(string_array):
+        numbers = []
+        for string in string_array:
+            numbers.append(int(string))
+        return numbers
+
+    def __terminal_id_to_konsole_session_id(self, terminal_id):
+        konsole_window_object = self.__bus.get_object(
+            self.__common_name, '/Windows/{}'.format(terminal_id + 1)
+        )
+        konsole_sessions = sorted(self.__split_number_string_array(
+            konsole_window_object.sessionList(
+                dbus_interface=self.__konsole_window_interface_name
+            )
+        ))
+        if len(konsole_sessions) > 1:
+            print("Warning: konsole terminal has more than one session open. "
+                  "The last will be used returned.",
+                  file=sys.stderr)
+
+        return konsole_sessions[-1]
+
+    def active_session_id(self):
+        return self.__sessions_interface.activeSessionId()
+
+    def active_terminal_id(self):
+        return self.__sessions_interface.activeTerminalId()
+
+    def add_session_quad(self):
+        return self.__sessions_interface.addSessionQuad()
+
+    def add_session_two_horizontal(self):
+        return self.__sessions_interface.addSessionTwoHorizontal()
+
+    def add_session_two_vertical(self):
+        return self.__sessions_interface.addSessionTwoVertical()
+
+    def add_session(self):
+        return self.__sessions_interface.addSession()
+
+    def has_terminals_with_keyboard_input_disabled(self, session_id):
+        return self.__sessions_interface.hasTerminalsWithKeyboardInputDisabled(
+            session_id
+        )
+
+    def has_terminals_with_keyboard_input_enabled(self, session_id):
+        return self.__sessions_interface.hasTerminalsWithKeyboardInputEnabled(
+            session_id
+        )
+
+    def has_terminals_with_monitor_activity_disabled(self, session_id):
+        return self.__sessions_interface.hasTerminalsWithMonitorActivityDisabled(
+            session_id
+        )
+
+    def has_terminals_with_monitor_activity_enabled(self, session_id):
+        return self.__sessions_interface.hasTerminalsWithMonitorActivityEnabled(
+            session_id
+        )
+
+    def has_terminals_with_monitor_silence_disabled(self, session_id):
+        return self.__sessions_interface.hasTerminalsWithMonitorSilenceDisabled(
+            session_id
+        )
+
+    def has_terminals_with_monitor_silence_enabled(self, session_id):
+        return self.__sessions_interface.hasTerminalsWithMonitorSilenceEnabled(
+            session_id
+        )
+
+    def has_unclosable_sessions(self):
+        return self.__sessions_interface.hasUnclosableSessions()
+
+    def is_session_closable(self, session_id):
+        return bool(self.__sessions_interface.isSessionClosable(session_id))
+
+    def is_session_keyboard_input_enabled(self, session_id):
+        return bool(self.__sessions_interface.isSessionKeyboardInputEnabled(
+            session_id))
+
+    def is_session_monitor_activity_enabled(self, session_id):
+        return bool(self.__sessions_interface.isSessionMonitorActivityEnabled(
+            session_id))
+
+    def is_session_monitor_silence_enabled(self, session_id):
+        return bool(self.__sessions_interface.isSessionMonitorSilenceEnabled(
+            session_id))
+
+    def is_terminal_keyboard_input_enabled(self, terminal_id):
+        return bool(self.__sessions_interface.isTerminalKeyboardInputEnabled(
+            terminal_id))
+
+    def is_terminal_monitor_activity_enabled(self, terminal_id):
+        return bool(self.__sessions_interface.isTerminalMonitorActivityEnabled(
+            terminal_id))
+
+    def is_terminal_monitor_silence_enabled(self, terminal_id):
+        return bool(self.__sessions_interface.isTerminalMonitorSilenceEnabled(
+            terminal_id))
+
+    def raise_session(self, session_id):
+        self.__sessions_interface.raiseSession(session_id)
+
+    def remove_session(self, session_id):
+        self.__sessions_interface.removeSession(session_id)
+
+    def remove_terminal(self, terminal_id):
+        self.__sessions_interface.removeTerminal(terminal_id)
+
+    def run_command_in_terminal(self, terminal_id, command):
+        self.__sessions_interface.runCommandInTerminal(terminal_id, command)
+
+    def run_command(self, command):
+        self.__sessions_interface.runCommand(command)
+
+    def session_id_for_terminal_id(self, terminal_id):
+        return self.__sessions_interface.sessionIdForTerminalId(terminal_id)
+
+    def session_id_list(self):
+        return self.__split_number_string(
+            self.__sessions_interface.sessionIdList()
+        )
+
+    def set_session(
+            self,
+            session_id,
+            closable=None,
+            keyboard_input_enabled=None,
+            monitor_activity_enabled=None,
+            monitor_silence_enabled=None
+    ):
+        if closable is not None:
+            self.__sessions_interface.setSessionClosable(session_id, closable)
+        if keyboard_input_enabled is not None:
+            self.__sessions_interface.setSessionKeyboardInputEnabled(
+                session_id,
+                keyboard_input_enabled
+            )
+        if monitor_activity_enabled is not None:
+            self.__sessions_interface.setSessionMonitorActivityEnabled(
+                session_id,
+                monitor_activity_enabled
+            )
+        if monitor_silence_enabled is not None:
+            self.__sessions_interface.setSessionMonitorSilenceEnabled(
+                session_id,
+                monitor_silence_enabled
+            )
+
+    def set_terminal(
+            self,
+            terminal_id,
+            keyboard_input_enabled=None,
+            monitor_activity_enabled=None,
+            monitor_silence_enabled=None
+    ):
+        if keyboard_input_enabled is not None:
+            self.__sessions_interface.setTerminalKeyboardInputEnabled(
+                terminal_id,
+                keyboard_input_enabled
+            )
+        if monitor_activity_enabled is not None:
+            self.__sessions_interface.setTerminalMonitorActivityEnabled(
+                terminal_id,
+                monitor_activity_enabled
+            )
+        if monitor_silence_enabled is not None:
+            self.__sessions_interface.setTerminalMonitorSilenceEnabled(
+                terminal_id,
+                monitor_silence_enabled
+            )
+
+    class SplitType(Enum):
+        No_Split = 0
+        Left_Right = 1
+        Top_Bottom = 2
+
+    def split_session(self, session_id, split_type):
+        if split_type == self.SplitType.Left_Right:
+            return self.__sessions_interface.splitSessionLeftRight(session_id)
+        elif split_type == self.SplitType.Top_Bottom:
+            return self.__sessions_interface.splitSessionTopBottom(session_id)
+        return -1
+
+    def split_terminal(self, terminal_id, split_type):
+        if split_type == self.SplitType.Left_Right:
+            return self.__sessions_interface.splitTerminalLeftRight(terminal_id)
+        elif split_type == self.SplitType.Top_Bottom:
+            return self.__sessions_interface.splitTerminalTopBottom(terminal_id)
+        return -1
+
+    def terminal_id_list(self):
+        return self.__split_number_string(
+            self.__sessions_interface.terminalIdList()
+        )
+
+    def terminal_ids_for_session_id(self, session_id):
+        return self.__split_number_string(
+            self.__sessions_interface.terminalIdsForSessionId(session_id)
+        )
+
+    class Direction(Enum):
+        Top = 1
+        Right = 2
+        Bottom = 3
+        Left = 4
+
+    def try_grow_terminal(self, terminal_id, direction, pixels=None):
+        if direction == self.Direction.Top:
+            if pixels is not None:
+                return self.__sessions_interface.tryGrowTerminalTop(
+                    terminal_id,
+                    pixels
+                )
+            return self.__sessions_interface.tryGrowTerminalTop(terminal_id)
+        if direction == self.Direction.Right:
+            if pixels is not None:
+                return self.__sessions_interface.tryGrowTerminalRight(
+                    terminal_id,
+                    pixels
+                )
+            return self.__sessions_interface.tryGrowTerminalRight(terminal_id)
+        if direction == self.Direction.Bottom:
+            if pixels is not None:
+                return self.__sessions_interface.tryGrowTerminalBottom(
+                    terminal_id,
+                    pixels
+                )
+
+            return self.__sessions_interface.tryGrowTerminalBottom(terminal_id)
+        if direction == self.Direction.Left:
+            if pixels is not None:
+                return self.__sessions_interface.tryGrowTerminalLeft(
+                    terminal_id,
+                    pixels
+                )
+
+            return self.__sessions_interface.tryGrowTerminalLeft(terminal_id)
+
+        return -1
+
+    def terminal_pid(self, terminal_id):
+        konsole_session = self.__terminal_id_to_konsole_session_id(terminal_id)
+
+        konsole_session_object = self.__bus.get_object(
+            self.__common_name, '/Sessions/{}'.format(konsole_session)
+        )
+        return int(konsole_session_object.processId(
+            dbus_interface=self.__konsole_session_interface_name
+        ))
+
+    def terminal_forground_pid(self, terminal_id):
+        konsole_session = self.__terminal_id_to_konsole_session_id(terminal_id)
+
+        konsole_session_object = self.__bus.get_object(
+            self.__common_name, '/Sessions/{}'.format(konsole_session)
+        )
+        return int(konsole_session_object.foregroundProcessId(
+            dbus_interface=self.__konsole_session_interface_name
+        ))
+
+    def terminal_send_text(self, terminal_id, text):
+        konsole_session = self.__terminal_id_to_konsole_session_id(terminal_id)
+
+        konsole_session_object = self.__bus.get_object(
+            self.__common_name, '/Sessions/{}'.format(konsole_session)
+        )
+        konsole_session_object.sendText(
+            text,
+            dbus_interface=self.__konsole_session_interface_name
+        )
+
+    def session_at_tab(self, tab_index):
+        return self.__tabs_interface.sessionAtTab(tab_index)
+
+    def set_tab_title(self, session_id, tab_title):
+        self.__tabs_interface.setTabTitle(session_id, tab_title)
+
+    def tab_title(self, session_id):
+        return self.__tabs_interface.tabTitle(session_id)
+
+    def toggle_window_state(self):
+        self.__window_interface.toggleWindowState()
 
 
 class SortedDict(dict):
