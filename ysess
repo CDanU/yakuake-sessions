@@ -96,28 +96,32 @@ def get_sessions():
             '/yakuake/sessions sessionIdForTerminalId {}'.format(ksession - 1)
         ))
 
+        sessid = int(get_yakuake('/yakuake/tabs sessionAtTab {}'.format(tabid)))
+        tab_title = get_yakuake('/yakuake/tabs tabTitle {}'.format(tabid)),
+
         split = '' if tabid != last_tabid \
             else ('vertical' if ksession % 2 else 'horizontal')
-
         last_tabid = tabid
-        sessid = int(get_yakuake('/yakuake/tabs sessionAtTab {}'.format(tabid)))
 
         ksess = '/Sessions/{}'.format(ksession)
-        pid = get_yakuake(ksess + ' processId')
 
+        pid = get_yakuake(ksess + ' processId')
         fgpid = get_yakuake(ksess + ' foregroundProcessId')
+
+        cmd = ''
+        if fgpid != pid:
+            out = get_stdout('ps ' + fgpid, env={'PS_FORMAT': 'command'})
+            cmd = out.split('\n')[-1]
+        cwd = get_stdout('pwdx ' + pid).partition(' ')[2]
+
         tabs.append({
-            'title': get_yakuake('/yakuake/tabs tabTitle {}'.format(tabid)),
-            'sessionid': tabid,
             'tabid': tabid,
-            'active': sessid == active_sessionid,
+            'sessionid': tabid,
+            'title': tab_title,
+            'active': sessid == activesess,
             'split': split,
-            'cwd': get_stdout('pwdx ' + pid).partition(' ')[2],
-            'cmd': '' if fgpid == pid else
-            get_stdout(
-                'ps ' + fgpid,
-                env={'PS_FORMAT': 'command'}
-            ).split('\n')[-1],
+            'cmd': cmd,
+            'cwd': cwd,
         })
 
     return tabs
