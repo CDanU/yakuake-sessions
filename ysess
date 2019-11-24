@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 from argparse import ArgumentParser
+from configparser import ConfigParser
 from enum import Enum
 
 
@@ -361,6 +362,70 @@ def write_data(data, file_obj):
     print(json.dumps(data, indent=4, sort_keys=True), file=file_obj)
 
 
+def load_data_legacy(file_obj):
+    cp = ConfigParser()
+    cp.read_file(file_obj)
+
+    sections = cp.sections()
+
+    data = {
+        "sessions": []
+    }
+
+    session_dummy = {
+        "tab_title": "",
+        "is_closable": True,
+        "keyboard_input_enabled": True,
+        "monitor_activity_enabled": False,
+        "monitor_silence_enabled": False,
+        "active": False,
+        "terminals": []
+    }
+
+    terminal_dummy = {
+        "keyboard_input_enabled": True,
+        "monitor_activity_enabled": False,
+        "monitor_silence_enabled": False,
+        'cmd': "",
+        'cwd': "",
+        'text': ""
+    }
+
+    terminals_list = []
+    current_session = None
+
+    for i, section in enumerate(sorted(sections)):
+        opts = dict(cp.items(section))
+
+        # every non split is a new tab
+        if not opts['split']:
+            if current_session is not None:
+                current_session["terminals"] = terminals_list
+                data["sessions"].append(current_session)
+                terminals_list = []
+
+            current_session = session_dummy.copy()
+            current_session["tab_title"] = opts['title']
+
+        terminal = terminal_dummy.copy()
+
+        terminal["cmd"] = opts['cmd'] if opts['cmd'] else ""
+        terminal["cwd"] = opts['cwd'] if opts['cwd'] else ""
+
+        terminals_list.append(terminal)
+
+        if opts['active'] is not None and opts['active'].lower() in [
+            'y', 'yes', 'true', '1'
+          ]:
+            current_session["active"] = True
+
+    if current_session is not None:
+        current_session["terminals"] = terminals_list
+        data["sessions"].append(current_session)
+
+    return data
+
+
 def load_data(file_obj):
     return json.load(file_obj)
 
@@ -537,6 +602,13 @@ def main():
     )
 
     group_exclusive.add_argument(
+        '-I', '--legacy-in-file',
+        help='Legacy config format file to read from, or "-" for stdin',
+        dest='legacy_infile',
+        metavar='FILE'
+    )
+
+    group_exclusive.add_argument(
         '-o', '--out-file',
         help='File to write to, or "-" for stdout',
         dest='outfile',
@@ -581,6 +653,10 @@ def main():
     if args.outfile is None and args.infile is None:
         data = get_data()
         write_data(data, sys.stdout)
+
+    if args.legacy_infile is not None:
+        args.infile = args.legacy_infile
+        load_data = load_data_legacy
 
     if args.infile is not None:
         if args.infile == '-':
