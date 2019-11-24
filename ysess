@@ -9,7 +9,7 @@ import subprocess
 import subprocess as sp
 import sys
 import time
-from configParser import ConfigParser
+from configparser import ConfigParser
 from optparse import OptionParser
 
 
@@ -22,7 +22,7 @@ bus = dbus.SessionBus()
 class SortedDict(dict):
     def __init__(self, *args, **kwargs):
         dict.__init__(self, *args, **kwargs)
-        self.keyOrder = dict.keys(self)
+        self.keyOrder = list(dict.keys(self))
 
     def keys(self):
         return self.keyOrder
@@ -61,15 +61,18 @@ def get_stdout(cmd, **opts):
     if 'env' in opts:
         env, opts['env'] = opts['env'], os.environ.copy()
         opts['env'].update(env)
+
     quoted = re.findall(r'".+"', cmd)
     for q in quoted:
         cmd = cmd.replace(q, '%s')
-    cmd = cmd.split()
-    for i, part in enumerate(cmd):
+
+    cmd_split = cmd.split()
+    for i, part in enumerate(cmd_split):
         if part == '%s':
-            cmd[i] = quoted.pop(0)[1:-1]
-    proc = sp.Popen(cmd, **opts)
-    return proc.communicate()[0].strip()
+            cmd_split[i] = quoted.pop(0)[1:-1]
+
+    proc = subprocess.Popen(cmd_split, **opts)
+    return proc.communicate()[0].decode('utf-8').strip()
 
 
 def get_yakuake(cmd):
@@ -100,21 +103,21 @@ def get_sessions():
         # Al usar "sessionAtTab", me devuelve la primera sesión abierta en el tab, lo cual me ayuda a seguir
         # el orden.
         tabid = int(get_yakuake(
-            '/yakuake/sessions sessionIdForTerminalId %d' % (ksession - 1)
+            '/yakuake/sessions sessionIdForTerminalId {}'.format(ksession - 1)
         ))
 
         split = '' if tabid != last_tabid \
             else ('vertical' if ksession % 2 else 'horizontal')
 
         last_tabid = tabid
-        sessid = int(get_yakuake('/yakuake/tabs sessionAtTab %d' % tabid))
+        sessid = int(get_yakuake('/yakuake/tabs sessionAtTab {}'.format(tabid)))
         # ksess = '/Sessions/%d' % session_map[sessid]
-        ksess = '/Sessions/%d' % ksession
+        ksess = '/Sessions/{}'.format(ksession)
         pid = get_yakuake(ksess + ' processId')
         # cat /proc/<pid>/environ
         fgpid = get_yakuake(ksess + ' foregroundProcessId')
         tabs.append({
-            'title': get_yakuake('/yakuake/tabs tabTitle %d' % tabid),
+            'title': get_yakuake('/yakuake/tabs tabTitle {}'.format(tabid)),
             'sessionid': tabid,
             'tabid': tabid,
             'active': sessid == activesess,
@@ -133,12 +136,16 @@ def get_sessions():
 def format_sessions(tabs, fp):
     cp = ConfigParser(dict_type=SortedDict)
     tabpad = int(math.log10(len(tabs))) + 1
+
     for i, tab in enumerate(tabs):
-        section = ('Tab %%0%dd' % tabpad) % (i + 1)
+        section = 'Tab {num:{fill}{width}}'.format(
+            num=i + 1, fill='0', width=tabpad
+        )
+
         cp.add_section(section)
         cp.set(section, 'title', tab['title'])
-        cp.set(section, 'active', 1 if tab['active'] else 0)
-        cp.set(section, 'tab', tab['tabid'])
+        cp.set(section, 'active', '1' if tab['active'] else '0')
+        cp.set(section, 'tab', str(tab['tabid']))
         cp.set(section, 'split', tab['split'])
         cp.set(section, 'cwd', tab['cwd'])
         cp.set(section, 'cmd', tab['cmd'])
@@ -157,10 +164,11 @@ def clear_sessions():
 
 def load_sessions(file):
     cp = ConfigParser(dict_type=SortedDict)
-    cp.readfp(file)
+    cp.read_file(file)
+
     sections = cp.sections()
     if not sections:
-        print >> sys.stderr, "No tab info found, aborting"
+        print("No tab info found, aborting", file=sys.stderr)
         sys.exit(1)
 
     # Clear existing sessions, but only if we have good info (above)
@@ -187,7 +195,8 @@ def load_sessions(file):
             tab += 1
             get_yakuake('/yakuake/sessions addSession')
             get_yakuake(
-                '/yakuake/tabs setTabTitle %d "%s"' % (tab, opts['title']))
+                '/yakuake/tabs setTabTitle {} "{}"'.format(tab, opts['title'])
+            )
         else:
             target, split = (tab, opts['split']) if ':' not in opts['split'] \
                 else opts['split'].split(':')
@@ -197,10 +206,13 @@ def load_sessions(file):
                 int(target)
             ))
 
-        sessid = int(get_yakuake('/yakuake/tabs sessionAtTab %d' % i))
+        sessid = int(get_yakuake('/yakuake/tabs sessionAtTab {}'.format(i)))
         # ksessid = '/Session/%d' % session_map[sessid]
         if opts['cwd']:
-            get_yakuake('/yakuake/sessions runCommand " cd %s"' % opts['cwd'])
+            get_yakuake(
+                '/yakuake/sessions runCommand " cd {}"'.format(opts['cwd'])
+            )
+            
         if opts['cmd']:
             for cmd in opts['cmd'].split(r'\n'):
                 # get_yakuake('/yakuake/sessions runCommand "%s"' % cmd)
@@ -221,7 +233,7 @@ def load_sessions(file):
             active = sessid
 
     if active:
-        get_yakuake('/yakuake/sessions raiseSession %d' % active)
+        get_yakuake('/yakuake/sessions raiseSession {}'.format(active))
 
     # Remove initial session
     get_yakuake('/yakuake/sessions removeSession 0')
@@ -253,8 +265,8 @@ if __name__ == '__main__':
         if (opts.outfile and opts.outfile != '-' and (
             not os.path.exists(opts.outfile)
             or opts.force_overwrite
-            or raw_input(
-                'Specified file exists, overwrite? [y/N] '
+            or input(
+                 'Specified file exists, overwrite? [y/N] '
                ).lower().startswith('y')
         )):
             fp = open(opts.outfile, 'w')
@@ -263,7 +275,8 @@ if __name__ == '__main__':
         fp = sys.stdin
         if opts.infile and opts.infile != '-':
             if not os.path.exists(opts.infile):
-                print >> sys.stderr, "ERROR: Input file (%s) does not exist." % opt.infile
+                print("ERROR: Input file (%s) does not exist." % opts.infile,
+                      file=sys.stderr)
                 sys.exit(1)
             fp = open(opts.infile, 'r')
 
