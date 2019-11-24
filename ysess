@@ -434,7 +434,20 @@ def get_data():
     return data
 
 
-def apply_data(data):
+def close_sessions(sessions):
+    yak = Yakuake()
+    for session in sessions:
+        if yak.is_session_closable(session):
+            yak.remove_session(session)
+
+
+class InitialRemoval(Enum):
+    Null = 0
+    Session = 1
+    All = 2
+
+
+def apply_data(data, initial_removal=InitialRemoval.Null):
     if len(data['sessions']) == 0:
         print("No session data found, aborting", file=sys.stderr)
         sys.exit(1)
@@ -500,12 +513,14 @@ def apply_data(data):
                 terminal_id,
                 terminal["text"]
             )
-    yak.remove_session(initial_active_session_id)
+    if initial_removal == InitialRemoval.Session:
+        close_sessions([initial_active_session_id])
+    elif initial_removal == InitialRemoval.All:
+        close_sessions(initial_sessions)
     yak.raise_session(new_active_session_id)
 
 
 def main():
-    # TODO: also store shell environment (for virtualenvs and such)
     arg_parser = ArgumentParser(
         description="Save and load yakuake sessions. Settings are exported "
                     "in INI format. Default action is to print the current "
@@ -536,7 +551,32 @@ def main():
         default=False
     )
 
+    group_exclusive_initial = arg_parser.add_mutually_exclusive_group(required=False)
+
+    group_exclusive_initial.add_argument(
+        '--remove-initial-session',
+        help='Close session calling this script',
+        dest='remove_initial_session',
+        action="store_true",
+        default=False
+    )
+    group_exclusive_initial.add_argument(
+        '--remove-all-initial-sessions',
+        help='Close all session before loading new ones',
+        dest='remove_all_initial_sessions',
+        action="store_true",
+        default=False
+    )
+
     args = arg_parser.parse_args()
+
+    initial_removal = None
+    if args.remove_all_initial_sessions:
+        initial_removal = InitialRemoval.All
+    elif args.remove_initial_session:
+        initial_removal = InitialRemoval.Session
+    else:
+        initial_removal = InitialRemoval.Null
 
     if args.outfile is None and args.infile is None:
         data = get_data()
@@ -544,10 +584,10 @@ def main():
 
     if args.infile is not None:
         if args.infile == '-':
-            apply_data(load_data(sys.stdin))
+            apply_data(load_data(sys.stdin), initial_removal)
         elif os.path.exists(args.infile):
             file_path = open(args.infile, 'r')
-            apply_data(load_data(file_path))
+            apply_data(load_data(file_path), initial_removal)
         else:
             print("ERROR - Input file does not exist: '{}'".format(args.infile),
                   file=sys.stderr)
